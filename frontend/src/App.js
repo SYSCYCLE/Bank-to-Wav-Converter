@@ -32,7 +32,7 @@ function App() {
         formData.append('bankFile', selectedFile);
 
         try {
-            const response = await fetch('YOUR_BACKEND_RENDER_URL_HERE/convert', {
+            const response = await fetch('https://bank-to-wav-converter.onrender.com', {
                 method: 'POST',
                 body: formData,
             });
