@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Bank → WAV Converter — Frontend</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#60a5fa;--muted:#94a3b8;--success:#34d399}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial}
+    body{background:linear-gradient(180deg,#071020 0%, #071629 100%);color:#e6eef8;display:flex;align-items:center;justify-content:center;padding:24px}
+    .card{width:100%;max-width:820px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:20px;box-shadow:0 10px 30px rgba(2,6,23,0.7)}
+    h1{margin:0 0 8px;font-size:20px}
+    p.lead{margin:0 0 16px;color:var(--muted)}
+    .drop{border:2px dashed rgba(255,255,255,0.06);padding:22px;border-radius:10px;display:flex;gap:16px;align-items:center}
+    .drop.dragover{border-color:var(--accent);box-shadow:0 6px 18px rgba(96,165,250,0.06)}
+    .drop input{display:none}
+    .btn{background:linear-gradient(90deg,var(--accent) 0%, #3b82f6 100%);padding:10px 14px;border-radius:8px;color:#021124;border:0;cursor:pointer}
+    .muted{color:var(--muted);font-size:13px}
+    .files{margin-top:12px}
+    .file{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:8px;margin-top:8px}
+    progress{width:100%;height:12px;border-radius:8px}
+    .links{margin-top:12px}
+    .link{display:inline-block;margin-right:8px;background:rgba(255,255,255,0.03);padding:6px 8px;border-radius:6px;color:var(--accent);text-decoration:none}
+    footer{margin-top:16px;font-size:12px;color:var(--muted)}
+    .hidden{display:none}
+    .error{color:#ff7b7b}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Bank → WAV (ön uç)</h1>
+    <p class="lead">`.bank` dosyanızı seçin veya sürükleyip bırakın. Sunucuya gönderilecek ve çıktı WAV/OGG linkleri gösterilecek. (CORS açık olmalı.)</p><div id="drop" class="drop">
+  <div style="flex:1">
+    <strong>Dosya seç</strong>
+    <div class="muted">Sürükle & bırak ya da butondan seç. Maks boyut sunucuyla sınırlı.</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <label class="btn" for="fileInput">Dosya Seç</label>
+    <input id="fileInput" type="file" accept=".bank">
+  </div>
+</div>
+
+<div class="files" id="files"></div>
+
+<div class="links" id="links"></div>
+
+<footer>
+  <div class="muted">Not: Sunucunuzun <code>/extract</code> endpoint'i CORS'u açmış olmalı. Eğer API farklı domaindeyse, endpoint tam URL'sini kullanın.</div>
+</footer>
+
+  </div><script>
+(function(){
+  const drop = document.getElementById('drop');
+  const fileInput = document.getElementById('fileInput');
+  const filesEl = document.getElementById('files');
+  const linksEl = document.getElementById('links');
+
+  const API_BASE = 'https://bank-to-wav-converter.onrender.com/extract';
+  const EXTRACT_URL = (API_BASE||'') + '/extract';
+
+  function clear(){ filesEl.innerHTML=''; linksEl.innerHTML=''; }
+  function showError(text){ clear(); const e=document.createElement('div'); e.className='error'; e.textContent = text; filesEl.appendChild(e); }
+
+  ['dragenter','dragover'].forEach(ev=>{
+    drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.add('dragover'); });
+  });
+  ['dragleave','drop'].forEach(ev=>{
+    drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.remove('dragover'); });
+  });
+  drop.addEventListener('drop', e=>{
+    const f = e.dataTransfer.files[0]; if(f) handleFile(f);
+  });
+
+  fileInput.addEventListener('change', e=>{
+    const f = e.target.files[0]; if(f) handleFile(f);
+  });
+
+  function handleFile(file){
+    clear();
+    const row = document.createElement('div'); row.className='file';
+    const name = document.createElement('div'); name.textContent = file.name;
+    const progress = document.createElement('progress'); progress.max = 100; progress.value = 0;
+    const status = document.createElement('div'); status.className='muted'; status.textContent='Hazırlanıyor...';
+    row.appendChild(name);
+    row.appendChild(progress);
+    row.appendChild(status);
+    filesEl.appendChild(row);
+
+    uploadFile(file, progress, status);
+  }
+
+  async function uploadFile(file, progressEl, statusEl){
+    try{
+      statusEl.textContent = 'Yükleniyor...';
+      const form = new FormData();
+      form.append('bank', file);
+      
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', EXTRACT_URL, true);
+      xhr.responseType = 'json';
+
+      xhr.upload.onprogress = function(e){ if(e.lengthComputable){ const pct = Math.round(e.loaded/e.total*100); progressEl.value = pct; }};
+
+      xhr.onload = function(){
+        if(xhr.status >= 200 && xhr.status < 300){
+          const body = xhr.response;
+          statusEl.textContent = 'Tamamlandı';
+          progressEl.value = 100;
+          showLinks(body);
+        } else {
+          statusEl.textContent = 'Hata';
+          try{ showError('Sunucu hatası: ' + (xhr.response && xhr.response.error ? xhr.response.error : xhr.statusText)); }
+          catch(e){ showError('Sunucu hatası'); }
+        }
+      };
+
+      xhr.onerror = function(){ statusEl.textContent = 'Yükleme hatası'; showError('Ağ hatası.'); };
+
+      xhr.send(form);
+    }catch(err){ showError('İstisna: '+err.message); }
+  }
+
+  function showLinks(body){
+    linksEl.innerHTML = '';
+    if(!body) return;
+    if(body.files && Array.isArray(body.files)){
+      body.files.forEach(p=>{
+        let href = p;
+        if(href.startsWith('/')) href = (location.origin) + href;
+        const a = document.createElement('a'); a.href = href; a.target='_blank'; a.rel='noopener'; a.className='link';
+        a.textContent = (new URL(href)).pathname.split('/').pop();
+        linksEl.appendChild(a);
+      });
+    } else if(body.error){ showError(body.error); }
+    else { const t = document.createElement('div'); t.textContent = JSON.stringify(body); linksEl.appendChild(t); }
+  }
+
+})();
+</script>
+</body>
+</html>
