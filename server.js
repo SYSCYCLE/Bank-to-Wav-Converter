@@ -7,6 +7,8 @@ import { exec } from "child_process";
 const app = express();
 const upload = multer({ dest: "uploads/" });
 
+app.use(express.static("."));
+
 app.post("/extract", upload.single("bank"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No .bank file uploaded" });
