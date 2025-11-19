@@ -1,37 +1,51 @@
 import express from "express";
+import path from "path";
 import fs from "fs";
-import { exec } from "child_process";
 import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import bodyParser from "body-parser";
+import multer from "multer";
+import { exec } from "child_process";
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = 10000;
 
-const UPLOAD_DIR = join(__dirname, "uploads");
-const OUTPUT_DIR = join(__dirname, "output");
+const UPLOAD_DIR = path.join(__dirname, "uploads");
+const OUTPUT_DIR = path.join(__dirname, "output");
 
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
-app.get("/convert/:filename", (req, res) => {
-  const { filename } = req.params;
-  const inputFile = join(UPLOAD_DIR, filename);
-  const outputFile = join(OUTPUT_DIR, filename.replace(".bank", ".wav"));
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => cb(null, file.originalname),
+});
+const upload = multer({ storage });
 
-  if (!fs.existsSync(inputFile)) {
-    return res.status(404).json({ error: "Dosya bulunamadı" });
-  }
+app.use(bodyParser.json());
 
-  exec(`./fmod_extractor "${inputFile}" "${outputFile}"`, (err, stdout, stderr) => {
+app.post("/extract", upload.single("bank"), (req, res) => {
+  const bankFile = path.join(UPLOAD_DIR, req.file.filename);
+  const wavFile = path.join(OUTPUT_DIR, req.file.filename.replace(/\.bank$/, ".wav"));
+
+  console.log("Dosya bulundu, işleniyor:", bankFile);
+
+  exec(`./fmod_extractor "${bankFile}" "${wavFile}"`, (err, stdout, stderr) => {
     if (err) {
-      console.error("Hata:", err.message);
-      return res.status(500).json({ error: "Dönüştürme başarısız", details: err.message });
+      console.error(err);
+      return res.status(500).json({ status: "error", message: stderr });
     }
+    console.log("WAV kaydedildi:", wavFile);
+    res.json({ status: "success", outputFile: wavFile });
+  });
+});
 
-    console.log(`WAV kaydedildi: ${outputFile}`);
-    res.json({ status: "success", outputFile });
+app.get("/download/:file", (req, res) => {
+  const filePath = path.join(OUTPUT_DIR, req.params.file);
+  res.download(filePath, (err) => {
+    if (err) res.status(404).send("Dosya bulunamadı");
   });
 });
 
