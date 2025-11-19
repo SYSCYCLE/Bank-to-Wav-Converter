@@ -1,35 +1,49 @@
-import fetch from "node-fetch";
-import fs from "fs";
+import express from "express";
+import multer from "multer";
 import path from "path";
+import fs from "fs";
+import cors from "cors";
+import { exec } from "child_process";
 
-fs.writeFileSync("test.bank", "dummy content");
+const app = express();
+app.use(cors({ origin: "*" }));
 
-fs.mkdirSync("uploads", { recursive: true });
-fs.mkdirSync("output", { recursive: true });
+const UPLOADS_DIR = path.join(process.cwd(), "uploads");
+const OUTPUT_DIR = path.join(process.cwd(), "output");
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-const uploadPath = path.join("uploads", "test.bank");
-fs.copyFileSync("test.bank", uploadPath);
+const upload = multer({ dest: UPLOADS_DIR });
 
-const FormData = global.FormData || (await import("form-data")).default;
-const formData = new FormData();
-formData.append("bank", fs.createReadStream(uploadPath));
+app.use(express.static("."));
 
-const url = "https://bank-to-wav-converter.onrender.com/extract";
+app.post("/extract", upload.single("bank"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No .bank file uploaded" });
 
-(async () => {
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      body: formData
+  const inputPath = path.join(UPLOADS_DIR, req.file.filename);
+  const outputDir = path.join(OUTPUT_DIR, req.file.filename);
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const cmd = `./fmod_extractor "${inputPath}" "${outputDir}"`;
+
+  exec(cmd, (error, stdout, stderr) => {
+    if (error) {
+      console.error("Extractor error:", stderr);
+      return res.status(500).json({ error: "Extraction failed", details: stderr });
+    }
+
+    const files = fs.readdirSync(outputDir).filter(f => f.endsWith(".wav") || f.endsWith(".ogg"));
+    res.json({
+      message: "Extraction complete",
+      files: files.map(f => `/download/${req.file.filename}/${f}`)
     });
+  });
+});
 
-    console.log("Status:", res.status);
-    const data = await res.json().catch(() => null);
-    console.log("Response:", data);
-  } catch (err) {
-    console.error("Error:", err.message);
-  } finally {
-    fs.unlinkSync("test.bank");
-    fs.unlinkSync(uploadPath);
-  }
-})();
+app.get("/download/:id/:sound", (req, res) => {
+  const filePath = path.join(OUTPUT_DIR, req.params.id, req.params.sound);
+  res.download(filePath);
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`FMOD extractor API running on port ${PORT}`));
