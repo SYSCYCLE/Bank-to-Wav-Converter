@@ -2,9 +2,11 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import cors from "cors";
 import { exec } from "child_process";
 
 const app = express();
+app.use(cors
 const upload = multer({ dest: "uploads/" });
 
 app.use(express.static("."));
