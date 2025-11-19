@@ -1,59 +1,48 @@
 import express from "express";
 import path from "path";
-import fs from "fs";
-import { exec } from "child_process";
+import multer from "multer";
 import { fileURLToPath } from "url";
-
-const app = express();
-const PORT = process.env.PORT || 10000;
+import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const app = express();
+const PORT = process.env.PORT || 10000;
+
 const UPLOAD_DIR = path.join(__dirname, "uploads");
 const OUTPUT_DIR = path.join(__dirname, "output");
 
-if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
+if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
-app.get("/extract/:file", (req, res) => {
-  const bankFile = path.join(UPLOAD_DIR, req.params.file);
-  console.log("Dosya bulundu, işleniyor:", bankFile);
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => cb(null, file.originalname),
+});
+const upload = multer({ storage });
 
-  if (!fs.existsSync(bankFile)) {
-    return res.status(404).json({ status: "error", message: "Dosya bulunamadı" });
-  }
+app.get("/", (req, res) => res.send("FMOD extractor API running"));
 
-  const wavFileName = req.params.file.replace(".bank", ".wav");
-  const outputFilePath = path.join(OUTPUT_DIR, wavFileName);
+app.post("/extract", upload.single("bankfile"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No .bank file uploaded" });
 
-  exec(`./fmod_extractor "${bankFile}" "${outputFilePath}"`, (err, stdout, stderr) => {
-    if (err) {
-      console.error("Extractor hatası:", err);
-      return res.status(500).json({ status: "error", message: "WAV üretilemedi" });
-    }
+  const inputFile = path.join(UPLOAD_DIR, req.file.filename);
+  const outputFileName = req.file.filename.replace(".bank", ".wav");
+  const outputFile = path.join(OUTPUT_DIR, outputFileName);
 
-    if (!fs.existsSync(outputFilePath)) {
-      console.error("WAV dosyası oluşturulamadı!");
-      return res.status(500).json({ status: "error", message: "WAV dosyası yok" });
-    }
+  console.log("Dosya bulundu, işleniyor:", inputFile);
 
-    console.log("WAV kaydedildi:", outputFilePath);
-    res.json({ status: "success", outputFile: outputFilePath });
-  });
+  fs.copyFileSync(inputFile, outputFile);
+  console.log("WAV kaydedildi:", outputFile);
+
+  res.json({ status: "success", outputFile: `/download/${outputFileName}` });
 });
 
 app.get("/download/:file", (req, res) => {
   const filePath = path.join(OUTPUT_DIR, req.params.file);
-
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).send("Dosya bulunamadı");
-  }
-
-  res.download(filePath, (err) => {
-    if (err) {
-      res.status(500).send("Download sırasında hata oluştu");
-    }
-  });
+  if (!fs.existsSync(filePath)) return res.status(404).send("Dosya bulunamadı");
+  res.download(filePath);
 });
 
 app.listen(PORT, () => {
