@@ -1,12 +1,20 @@
 import fetch from "node-fetch";
 import fs from "fs";
-
-const url = "https://bank-to-wav-converter.onrender.com/extract";
+import path from "path";
 
 fs.writeFileSync("test.bank", "dummy content");
 
+fs.mkdirSync("uploads", { recursive: true });
+fs.mkdirSync("output", { recursive: true });
+
+const uploadPath = path.join("uploads", "test.bank");
+fs.copyFileSync("test.bank", uploadPath);
+
+const FormData = global.FormData || (await import("form-data")).default;
 const formData = new FormData();
-formData.append("bank", fs.createReadStream("test.bank"));
+formData.append("bank", fs.createReadStream(uploadPath));
+
+const url = "https://bank-to-wav-converter.onrender.com/extract";
 
 (async () => {
   try {
@@ -22,5 +30,6 @@ formData.append("bank", fs.createReadStream("test.bank"));
     console.error("Error:", err.message);
   } finally {
     fs.unlinkSync("test.bank");
+    fs.unlinkSync(uploadPath);
   }
 })();
