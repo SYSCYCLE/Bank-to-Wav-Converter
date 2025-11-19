@@ -1,39 +1,47 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
-import { exec } from "child_process";
+import multer from "multer";
+import { execFile } from "child_process";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
-const UPLOADS_DIR = path.join(process.cwd(), "uploads");
+const UPLOAD_DIR = path.join(process.cwd(), "uploads");
+const OUTPUT_DIR = path.join(process.cwd(), "output");
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
+if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
-app.get("/extract/:filename", async (req, res) => {
-  const { filename } = req.params;
-  const filePath = path.join(UPLOADS_DIR, filename);
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => cb(null, file.originalname)
+});
+const upload = multer({ storage });
 
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: "File not found in uploads" });
-  }
+app.post("/extract", upload.single("bank"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No .bank file uploaded" });
 
-  try {
-    console.log(`Dosya bulundu, işleniyor: ${filePath}`);
+  const bankPath = req.file.path;
+  const outputFileName = path.parse(req.file.originalname).name + ".wav";
+  const outputPath = path.join(OUTPUT_DIR, outputFileName);
 
-    exec(`./fmod_extractor "${filePath}"`, (error, stdout, stderr) => {
-      if (error) {
-        console.error("Extraction error:", stderr || error.message);
-        return res.status(500).json({ error: "Extraction failed", details: stderr });
-      }
+  console.log("Dosya bulundu, işleniyor:", bankPath);
 
-      console.log("Extraction tamamlandı:", stdout);
-      res.json({ status: "success", output: stdout });
-    });
-  } catch (err) {
-    console.error("Server error:", err);
-    res.status(500).json({ error: "Server error", details: err.message });
-  }
+  execFile("./fmod_extractor", ["-o", outputPath, bankPath], (err, stdout, stderr) => {
+    if (err) {
+      console.error("Extractor hatası:", err, stderr);
+      return res.status(500).json({ error: "Extraction failed", details: stderr });
+    }
+
+    console.log("İşlem tamamlandı. WAV kaydedildi:", outputPath);
+    return res.json({ status: "success", output: `Saved to ${outputPath}` });
+  });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server ayakta, port: ${PORT}`);
+app.get("/extract/:fileName", (req, res) => {
+  const filePath = path.join(UPLOAD_DIR, req.params.fileName);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
+  res.json({ status: "found", file: filePath });
 });
+
+app.listen(PORT, () => console.log(`Server ayakta, port: ${PORT}`));
