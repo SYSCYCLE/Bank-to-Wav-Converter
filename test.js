@@ -4,9 +4,7 @@ import FormData from "form-data";
 import path from "path";
 
 const url = "https://bank-to-wav-converter.onrender.com/extract";
-const testFile = path.join(process.cwd(), "test.bank");
-
-fs.writeFileSync(testFile, "dummy content");
+const testFile = path.join(process.cwd(), "uploads", "real-bank-file.bank");
 
 const formData = new FormData();
 formData.append("bank", fs.createReadStream(testFile));
@@ -19,7 +17,5 @@ formData.append("bank", fs.createReadStream(testFile));
     console.log("Response:", data);
   } catch (err) {
     console.error("Error:", err.message);
-  } finally {
-    fs.unlinkSync(testFile);
   }
 })();
