@@ -1,47 +1,48 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
-import multer from "multer";
-import { execFile } from "child_process";
+import { exec } from "child_process";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-const UPLOAD_DIR = path.join(process.cwd(), "uploads");
-const OUTPUT_DIR = path.join(process.cwd(), "output");
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
-if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
+const uploadsDir = path.join(process.cwd(), "uploads");
+const outputDir = path.join(process.cwd(), "output");
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => cb(null, file.originalname)
-});
-const upload = multer({ storage });
+if (!fs.existsSync(outputDir)) {
+  fs.mkdirSync(outputDir);
+}
 
-app.post("/extract", upload.single("bank"), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No .bank file uploaded" });
+function processBankFiles() {
+  const files = fs.readdirSync(uploadsDir).filter(f => f.endsWith(".bank"));
 
-  const bankPath = req.file.path;
-  const outputFileName = path.parse(req.file.originalname).name + ".wav";
-  const outputPath = path.join(OUTPUT_DIR, outputFileName);
+  if (files.length === 0) {
+    console.log("Uploads içinde .bank dosyası yok.");
+    return;
+  }
 
-  console.log("Dosya bulundu, işleniyor:", bankPath);
+  files.forEach(file => {
+    const inputPath = path.join(uploadsDir, file);
+    const outputPath = path.join(outputDir, file.replace(".bank", ".wav"));
 
-  execFile("./fmod_extractor", ["-o", outputPath, bankPath], (err, stdout, stderr) => {
-    if (err) {
-      console.error("Extractor hatası:", err, stderr);
-      return res.status(500).json({ error: "Extraction failed", details: stderr });
-    }
+    console.log("Dosya bulundu, işleniyor:", inputPath);
 
-    console.log("İşlem tamamlandı. WAV kaydedildi:", outputPath);
-    return res.json({ status: "success", output: `Saved to ${outputPath}` });
+    exec(`./fmod_extractor -i "${inputPath}" -o "${outputPath}"`, (err, stdout, stderr) => {
+      if (err) {
+        console.error("Hata:", err);
+        return;
+      }
+      console.log("WAV kaydedildi:", outputPath);
+    });
   });
+}
+
+app.get("/extract", (req, res) => {
+  processBankFiles();
+  res.json({ status: "başlatıldı", message: "Uploads içindeki bank dosyaları işleniyor." });
 });
 
-app.get("/extract/:fileName", (req, res) => {
-  const filePath = path.join(UPLOAD_DIR, req.params.fileName);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
-  res.json({ status: "found", file: filePath });
+app.listen(PORT, () => {
+  console.log("Server ayakta, port:", PORT);
+  processBankFiles();
 });
-
-app.listen(PORT, () => console.log(`Server ayakta, port: ${PORT}`));
